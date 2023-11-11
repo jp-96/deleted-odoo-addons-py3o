@@ -29,16 +29,16 @@ RUN if ! cat /etc/group | grep -e "^pip-global:" > /dev/null 2>&1; then groupadd
 # [Optional] Uncomment this line to install global node packages.
 # RUN su vscode -c "source /usr/local/share/nvm/nvm.sh && npm install -g <your-package-here>" 2>&1
 
-# Create directories and set permissions
-RUN mkdir /etc/odoo /opt/odoo /opt/odoo/scripts \
-    && chown -R vscode:vscode /etc/odoo /opt/odoo
+# Create directory and set permission
+RUN mkdir /opt/odoo && chown -R vscode:vscode /opt/odoo
 
 WORKDIR /opt/odoo
 
-# Install Odoo
+# Install Odoo and Reporting Engine
 USER vscode
 ARG ODOO_VERSION="master"
 RUN git clone --branch=${ODOO_VERSION} --depth=1 https://github.com/odoo/odoo.git odoo
+RUN git clone --branch=${ODOO_VERSION} --depth=1 https://github.com/OCA/reporting-engine.git oca/reporting-engine
 USER root
 
 # Install some deps, lessc and less-plugin-clean-css, and wkhtmltopdf
@@ -67,6 +67,17 @@ RUN curl -o wkhtmltox.deb -sSL https://github.com/wkhtmltopdf/wkhtmltopdf/releas
     && apt-get install -y --no-install-recommends ./wkhtmltox.deb \
     && rm -rf /var/lib/apt/lists/* wkhtmltox.deb
 
+# Install py3o
+# https://github.com/OCA/reporting-engine
+#  - libreoffice
+RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
+    && apt-get -y install --no-install-recommends libreoffice default-jre libreoffice-java-common
+RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
+    && apt-get -y install --no-install-recommends ure libgoogle-gson-java fonts-symbola
+#  - report_py3o
+RUN pip3 --disable-pip-version-check --no-cache-dir install --upgrade py3o.template py3o.formats
+#  - report_py3o_fusion_server
+
 # Right-to-left interface support
 # See also: https://www.odoo.com/documentation/master/administration/install/install.html#dependencies
 ARG SUPPORT_RTLCSS="true"
@@ -76,22 +87,41 @@ RUN if [ "${SUPPORT_RTLCSS}" = "true" ]; then su vscode -c "umask 0002 && . /usr
 # See also: https://odoo-development.readthedocs.io/en/latest/ide/emacs/pylint.html
 #RUN pip3 --disable-pip-version-check --no-cache-dir install --upgrade git+https://github.com/oca/pylint-odoo.git
 RUN pip3 --disable-pip-version-check --no-cache-dir install --upgrade --pre pylint-odoo
-COPY odoo/.pylintrc /home/vscode
-RUN chown vscode:vscode /home/vscode/.pylintrc
 
 # Install bobtemplates.odoo.
 # See also: https://github.com/acsone/bobtemplates.odoo
 RUN pip3 --disable-pip-version-check --no-cache-dir install --upgrade bobtemplates.odoo
 
-# Define runtime configuration
-COPY odoo/entrypoint.sh /opt/odoo
-COPY odoo/scripts/* /opt/odoo/scripts
-COPY odoo/odoo.conf /etc/odoo
-RUN chown vscode:vscode /etc/odoo/odoo.conf
+# Create directories and set permissions
+RUN mkdir /opt/odoo/.vscode /opt/odoo/custom_addons /opt/odoo/data /opt/odoo/scripts \
+    && chown vscode:vscode /opt/odoo/.vscode /opt/odoo/custom_addons /opt/odoo/data /opt/odoo/scripts
+RUN mkdir /etc/odoo
+RUN mkdir /home/vscode/.vscode-server \
+    && chown vscode:vscode /home/vscode/.vscode-server
 
+# Install py3o example
 USER vscode
-RUN mkdir /opt/odoo/data /opt/odoo/custom_addons \
-    /opt/odoo/.vscode /home/vscode/.vscode-server
+RUN git clone --branch=${ODOO_VERSION} --depth=1 https://github.com/akretion/odoo-py3o-report-templates oca/odoo-py3o-report-templates
+RUN git clone --branch=${ODOO_VERSION} --depth=1 https://github.com/OCA/sale-workflow oca/sale-workflow
+RUN git clone --branch=${ODOO_VERSION} --depth=1 https://github.com/akretion/odoo-usability oca/odoo-usability
+RUN git clone --branch=${ODOO_VERSION} --depth=1 https://github.com/OCA/bank-payment oca/bank-payment
+RUN git clone --branch=${ODOO_VERSION} --depth=1 https://github.com/OCA/server-tools oca/server-tools
+USER root
+RUN pip3 --disable-pip-version-check --no-cache-dir install --upgrade astor
+
+# Install fonts - https://moji.or.jp/
+USER vscode
+RUN mkdir -p ~/.local/share/fonts
+RUN curl -o ipamjm00601.zip -sSL https://dforest.watch.impress.co.jp/library/i/ipamjfont/10750/ipamjm00601.zip \
+    && unzip ipamjm00601.zip -d ~/.local/share/fonts/ipamjm0601 \
+    && rm ipamjm00601.zip
+RUN curl -o IPAexfont00401.zip -sSL https://dforest.watch.impress.co.jp/library/i/ipaexfont/10821/IPAexfont00401.zip \
+    && unzip IPAexfont00401.zip -d ~/.local/share/fonts/ipaexfont00401 \
+    && rm IPAexfont00401.zip
+RUN curl -o IPAfont00303.zip -sSL https://moji.or.jp/wp-content/ipafont/IPAfont/IPAfont00303.zip \
+    && unzip IPAfont00303.zip -d ~/.local/share/fonts/ipafont00303 \
+    && rm IPAfont00303.zip
+RUN fc-cache
 USER root
 
 ENV ODOO_RC /etc/odoo/odoo.conf
